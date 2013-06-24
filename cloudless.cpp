@@ -35,6 +35,7 @@ using namespace std;
 int from_day, to_day, total_days;
 int total_image;
 Mat img[MAX_IMG];
+Mat mark[MAX_IMG];
 
 void combineImages(Mat &dst)
 {
@@ -100,6 +101,24 @@ int main( int argc, char** argv )
         }
     }
 
+    // Processing should be here
+    // First we identify NULL/Data-invalid pixels.
+    // These pixels are given zero marks directly.
+    Mat lookUpTable(1, 256, CV_8U);
+    uchar* p = lookUpTable.data;
+    for( int i = 0; i < 256; ++i) {
+        p[i] = 255;
+    }
+    p[0] = p[255] = 0;
+    
+    for (int i=0;i<total_image;i++) {
+        Mat gray;
+        gray = img[i];
+        cvtColor( img[i], gray, CV_RGB2GRAY );
+        LUT(gray, lookUpTable, mark[i]);
+    }
+
+    // Generating "Thumbnail" for reference
     combineImages(output);
     imwrite("Output.jpg", output);
 
