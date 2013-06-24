@@ -112,10 +112,23 @@ int main( int argc, char** argv )
     p[0] = p[255] = 0;
     
     for (int i=0;i<total_image;i++) {
-        Mat gray;
-        gray = img[i];
+        Mat gray = Mat(img[i]);
         cvtColor( img[i], gray, CV_RGB2GRAY );
         LUT(gray, lookUpTable, mark[i]);
+    }
+
+    // Then we give marks to remaining pixels...
+    // Depending on the S value in the HSV colorspace.
+    for (int i=0;i<total_image;i++) {
+        Mat hsv = Mat(img[i].rows, img[i].cols, CV_8UC1, 0); // TODO: Type is hard-coded!
+        Mat channel[3];
+        for (int j = 0;j<3;j++) {
+          channel[j] = Mat(hsv.rows, hsv.cols, CV_8UC1, 0); // TODO: Type is hard-coded!
+        }
+        cvtColor( img[i], hsv, CV_RGB2HSV);
+        split( hsv, channel );
+        mark[i] = mark[i].mul(channel[1], 1/255.0f);
+        //img[i] = mark[i];
     }
 
     // Generating "Thumbnail" for reference
