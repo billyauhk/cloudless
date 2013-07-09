@@ -52,6 +52,31 @@ int pixelComparator(const void* a, const void* b)
   return (((data_t*)b)->mark) - (((data_t*)a)->mark);
 }
 
+void trackbar_Index(int value, void*)
+{
+    int rows = img[0].rows, cols = img[0].cols;
+
+    Mat imgOut = cvCreateMat(rows, cols*2, img[0].type());
+    // RHS: normalized
+    Mat tmp = imgOut(Rect(cols,0,cols,rows));
+    /* Trying to mimick the behavior of ImageMagick's normalize here
+       Not very successful, need some extra time on understand the contrast stretch function there.
+       The current equalizeHist of channel 2 comes from trial-n-error
+    */
+    Mat hsv;
+    cvtColor(img[value],hsv,CV_BGR2HSV);
+    vector<Mat> channels;
+    split(hsv,channels);
+    equalizeHist(channels[2], channels[2]); 
+    merge(channels,hsv);
+    cvtColor(hsv,tmp,CV_HSV2BGR);
+    // LHS: Original
+    tmp = imgOut(Rect(0,0,cols,rows));
+    img[value].copyTo(tmp);
+
+    imshow("Thumbnail",imgOut);
+}
+
 void combineImages(Mat &dst)
 {
     int rows = img[0].rows, cols = img[0].cols;
@@ -191,12 +216,32 @@ printf("Sorting pixels...\n");
     } // end for(i)
 
 //STAGE: Output
-printf("Generating output...\n");
-    // Generating "Thumbnail" for reference
-    combineImages(output);
-    imwrite("Output.jpg", output);
+printf("View the thumbnail...\n");
+    // Or showing everybody a window
+    namedWindow("Thumbnail",CV_GUI_EXPANDED);
+    createTrackbar("Index","Thumbnail",NULL,total_image-1,trackbar_Index,NULL);
+    trackbar_Index(0,NULL);
+    waitKey(0);
+    destroyWindow("Thumbnail");
 
-    // waitKey(0);
+    // Generating "Thumbnail" for reference
+    printf("Do you want to save the image (y/n)?\n");
+    char key;    
+    while ((key=getchar())!=EOF) {
+        switch (key) {
+            case 'y': case 'Y':
+                printf("Generating output...\n");
+                combineImages(output);
+                imwrite("Output.jpg", output);
+                break;
+            case 'n': case 'N':
+                printf("Not generating output, byebye!\n");
+                break;
+            default:
+                goto breakReadKeyLoop; // Bad way to do, but we do not have break(2)
+        }
+    }
+breakReadKeyLoop:
 
     return 0;
 }
