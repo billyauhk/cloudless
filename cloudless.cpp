@@ -150,12 +150,21 @@ printf("Giving marks to pixels...\n");
     Mat lookUpTable(1, 256, CV_8U);
     uchar* p = lookUpTable.data;
     for( int i = 0; i < 256; ++i) {
+#ifdef ORIGINAL
+        p[i] = 1;
+#else
         p[i] = 255;
+#endif
     }
     for( int i = 0; i < 5; ++i) {
+#ifdef ORIGINAL
+      p[i] = 0;
+#else
       p[i] = p[255-i] = 0;
+#endif
     }
     
+    // This has to be kept as we still have to drop out the invalid pixels
     #pragma omp parallel for private(i)
     for (int i=0;i<total_image;i++) {
         Mat gray = Mat(img[i]);
@@ -163,8 +172,30 @@ printf("Giving marks to pixels...\n");
         LUT(gray, lookUpTable, mark[i]);
     }
 
+    int row = img[0].rows, col = img[0].cols;
+#ifdef ORIGINAL
+// The original marking method by Charlie...seems not working!?
+printf("Charlie marking\n");
+    #pragma omp parallel for private(i)
+    for (int i=0;i<total_image;i++) {
+        Mat channel[3];
+        for (int j = 0;j<3;j++) {
+          channel[j] = Mat(row, col, CV_8UC1, 0);
+        }
+        split( img[i], channel );
+        // Let us use the great "matrix operators" in OpenCV to emcode the parallelism
+        Mat max_channel = max(channel[0],max(channel[1],channel[2]));
+        Mat min_channel = min(channel[0],min(channel[1],channel[2]));
+        Mat saturation = max_channel - min_channel;
+        Mat darkness = max_channel*3 - (channel[0] + channel[1] + channel[2]);
+        mark[i] = mark[i].mul((saturation + darkness*0.1f)*0.5f, 1/(4.0f/3.0f)); // S channel
+        mark[i] = 255.0-mark[i]; // Invert them as we are sorting in reverse
+    }
+#else
+// Our way...seems better?
     // Then we give marks to remaining pixels...
     // Depending on the S value in the HSV colorspace.
+printf("Bill marking\n");
     #pragma omp parallel for private(i)
     for (int i=0;i<total_image;i++) {
         Mat hsv = Mat(img[i].rows, img[i].cols, CV_8UC1, 0); // TODO: Type is hard-coded!
@@ -175,12 +206,12 @@ printf("Giving marks to pixels...\n");
         cvtColor( img[i], hsv, CV_RGB2HSV);
         split( hsv, channel );
         mark[i] = mark[i].mul(channel[1], 1/255.0f); // S channel
-        //img[i] = mark[i];
-    }
+    } // end for each image i
+#endif
+
 
 //STAGE: Sort pixels
 printf("Sorting pixels...\n");
-    int row = img[0].rows, col = img[0].cols;
     // Testing parallelization of the loop   
     #pragma omp parallel for private(i,j,data)
     for (int i=0;i<row;i++) {
@@ -242,6 +273,9 @@ printf("View the thumbnail...\n");
         }
     }
 breakReadKeyLoop:
+
+//STAGE:Averaging
+// Seems it is better to get 30/732 image for r12c32 instead of the n/4+2...
 
     return 0;
 }
