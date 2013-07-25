@@ -39,6 +39,7 @@ int from_day, to_day, total_days;
 int total_image;
 Mat img[MAX_IMG];
 Mat mark[MAX_IMG];
+Mat final_image; // Where we put the average image
 
 #define numChannel 3
 typedef struct data_s{
@@ -147,7 +148,7 @@ printf("Reading images...\n");
 printf("Giving marks to pixels...\n");
     // First we identify NULL/Data-invalid pixels.
     // These pixels are given zero marks directly.
-    Mat lookUpTable(1, 256, CV_8U);
+    Mat lookUpTable(1, 256, CV_8U); // CV_8U is just hard-coded here.
     uchar* p = lookUpTable.data;
     for( int i = 0; i < 256; ++i) {
 #ifdef ORIGINAL
@@ -180,7 +181,7 @@ printf("Charlie marking\n");
     for (int i=0;i<total_image;i++) {
         Mat channel[3];
         for (int j = 0;j<3;j++) {
-          channel[j] = Mat(row, col, CV_8UC1, 0);
+          channel[j] = Mat(row, col, CV_8UC1, 0); // CV_8UC1 is just hard-coded here.
         }
         split( img[i], channel );
         // Let us use the great "matrix operators" in OpenCV to emcode the parallelism
@@ -198,10 +199,10 @@ printf("Charlie marking\n");
 printf("Bill marking\n");
     #pragma omp parallel for private(i)
     for (int i=0;i<total_image;i++) {
-        Mat hsv = Mat(img[i].rows, img[i].cols, CV_8UC1, 0); // TODO: Type is hard-coded!
+        Mat hsv = Mat(img[i].rows, img[i].cols, img[i].type(), 0);
         Mat channel[3];
         for (int j = 0;j<3;j++) {
-          channel[j] = Mat(hsv.rows, hsv.cols, CV_8UC1, 0); // TODO: Type is hard-coded!
+          channel[j] = Mat(hsv.rows, hsv.cols, img[i].type(), 0);
         }
         cvtColor( img[i], hsv, CV_RGB2HSV);
         split( hsv, channel );
@@ -277,5 +278,36 @@ breakReadKeyLoop:
 //STAGE:Averaging
 // Seems it is better to get 30/732 image for r12c32 instead of the n/4+2...
 
+    final_image = cvCreateMat(row, col, img[0].type());
+    int average_count = 30; // Hard code
+    
+    #pragma omp parallal private(sumR,sumG,sumB)
+    for(int i=0;i<row;i++){
+      for(int j=0;j<col;j++){
+        float sumR, sumG, sumB;
+        sumR = sumG = sumB = 0;
+        for(int k=0;(k<average_count)&&(img[k].data!=NULL);k++){
+          sumB += ((uint8_t*)(img[k].data))[i*col*numChannel+j*numChannel+0];
+          sumG += ((uint8_t*)(img[k].data))[i*col*numChannel+j*numChannel+1];
+          sumR += ((uint8_t*)(img[k].data))[i*col*numChannel+j*numChannel+2];
+        }
+        ((uint8_t*)(final_image.data))[i*col*numChannel+j*numChannel+0] = round(sumB/((float) average_count));
+        ((uint8_t*)(final_image.data))[i*col*numChannel+j*numChannel+1] = round(sumG/((float) average_count));
+        ((uint8_t*)(final_image.data))[i*col*numChannel+j*numChannel+2] = round(sumR/((float) average_count));
+      }
+    }
+
+    vector<int> compression_params;
+    compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
+    compression_params.push_back(9);
+
+    try {
+        imwrite("average.png", final_image, compression_params);
+    }
+    catch (runtime_error& ex) {
+        fprintf(stderr, "Exception converting image to PNG format: %s\n", ex.what());
+        return 1;
+    }
+    
     return 0;
 }
