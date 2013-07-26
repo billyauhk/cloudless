@@ -279,7 +279,7 @@ breakReadKeyLoop:
 // Seems it is better to get 30/732 image for r12c32 instead of the n/4+2...
 
     final_image = cvCreateMat(row, col, img[0].type());
-    int average_count = 30; // Hard code
+    int average_count = total_image>>2 +2; // Hard code
     
     #pragma omp parallal private(sumR,sumG,sumB)
     for(int i=0;i<row;i++){
