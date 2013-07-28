@@ -10,7 +10,8 @@ Limitations (To be implemented?):
 3. Will not work on greyscale images (known problem due to the heuristic).
 4. Too much RAM is wasted, this is the next target we are working on.
 
-Usage: cloudless FolderName(without space) [Year (optional)]
+Usage: cloudless FolderName(without space) [x y width height namePrefix] [Year (optional)]
+        (For cropping, (x,y) is the left-top corner. namePrefix is to be attached to the generated filename)
 Example: ./cloudless r12c32
 
 Modification log:
@@ -105,6 +106,14 @@ int main(int argc, char** argv){
   //STAGE: Read arguments
   char pattern[256];
   Mat output;
+  int boundX, boundY, boundW, boundH; // Region of Interest, in image coordinate
+
+  if(argc>2){
+    while(argv[1][strlen(argv[1])-1]=='/'){
+      printf("Extra slash is seen and ignored.\n");
+      argv[1][strlen(argv[1])-1]='\0';
+    }
+  }
 
   switch(argc){
     case 2:
@@ -113,10 +122,22 @@ int main(int argc, char** argv){
     case 3:
       sprintf(pattern, "%s/*.%s*.jpg", argv[1], argv[2]);
       break;
+    case 7:
+      sprintf(pattern, "%s/*.jpg", argv[1]);
+      boundX = atoi(argv[2]); boundY = atoi(argv[3]);
+      boundW = atoi(argv[4]); boundH = atoi(argv[5]);
+      printf("Suffix: %s\n", argv[6]);
+      break;
+    case 8:
+      sprintf(pattern, "%s/*.%s*.jpg", argv[1], argv[7]);
+      boundX = atoi(argv[2]); boundY = atoi(argv[3]);
+      boundW = atoi(argv[4]); boundH = atoi(argv[5]);
+      printf("Suffix: %s\n", argv[6]);
+      break;
     default:
-      printf("Usage: %s FolderName [Year]\n", argv[0]);
+      printf("Usage: %s FolderName [x y width height nameSuffix] [Year]\n", argv[0]);
       return -1;
-      break;    
+      break;
   }
 
   //STAGE: Read images
@@ -136,6 +157,13 @@ int main(int argc, char** argv){
       if(!img[total_image].data){
         printf("No image data: %s\n",globbuf.gl_pathv[i]);
       }else{
+        // Clip the data here
+        if(argc==7 || argc==8){
+          Mat temp_image;
+          Rect region(boundX, boundY, boundW, boundH);
+          Mat(img[total_image], region).copyTo(temp_image);
+          img[total_image] = temp_image;
+        }
         total_image++;
       }
       i++;
@@ -316,10 +344,14 @@ int main(int argc, char** argv){
 
   vector<int> compression_params;
   compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
-  compression_params.push_back(9);
+  compression_params.push_back(3); // Larger: smaller size, longer time
 
   try{
-    imwrite(argv[1]+string(".png"), final_image, compression_params);
+    if(argc==7 || argc==8){
+      imwrite(argv[1]+string("_")+argv[6]+string(".png"), final_image, compression_params);    
+    }else{
+      imwrite(argv[1]+string(".png"), final_image, compression_params);
+    }
   }catch(runtime_error& ex){
     fprintf(stderr, "Exception converting image to PNG format: %s\n", ex.what());
     return 1;

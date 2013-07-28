@@ -13,6 +13,9 @@ charlie:cloudless.cpp
 tiff:tiff.cpp
 	g++ tiff.cpp -o tiff -I/usr/local/include \
 		`pkg-config opencv --cflags --libs`
+version:version.cpp
+	g++ version.cpp -o tiff -I/usr/local/include \
+		`pkg-config opencv --cflags --libs`
 fixpath:
 	sudo ldconfig -v
 	echo "export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
