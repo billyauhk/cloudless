@@ -81,6 +81,7 @@ void trackbar_Index(int value, void*){
   imshow("Thumbnail",imgOut);
 }
 
+/* Commented out as it is unreachable
 void combineImages(Mat &dst){
   int rows = img[0].rows, cols = img[0].cols;
   int out_img_col = (unsigned int) sqrt(total_image); // How many pics we will pack on a row
@@ -101,6 +102,7 @@ void combineImages(Mat &dst){
     }
   }
 }
+*/
 
 int main(int argc, char** argv){
   //STAGE: Read arguments
@@ -226,7 +228,6 @@ int main(int argc, char** argv){
       saturation.convertTo(saturation, CV_8UC1);
       darkness.convertTo(darkness, CV_8UC1);
       mark[i] = (~mark[i]/255).mul((saturation + darkness)*0.5f, 1/(4.0f/3.0f)); // S channel
-      mark[i] = 255.0-mark[i]; // Invert them as we are sorting in reverse
     }
   #else
     // Our way...seems better?
@@ -288,9 +289,8 @@ int main(int argc, char** argv){
     } // end for(j)
   } // end for(i)
 
-  //STAGE: Preview
-  // Disabled when it is Bill's marking...
-#ifdef ORIGINAL
+  //STAGE: Preview. Code no longer active.
+/*
   printf("View the thumbnail...\n");
   // Or showing everybody a window
   namedWindow("Thumbnail",CV_GUI_EXPANDED);
@@ -317,7 +317,7 @@ int main(int argc, char** argv){
     }
   }
   breakReadKeyLoop:
-#endif
+*/
 
   //STAGE: Average and Output
   printf("Averaging and Output.\n");
