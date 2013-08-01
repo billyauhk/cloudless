@@ -151,9 +151,8 @@ int main(int argc, char** argv){
   glob_t globbuf;
   globbuf.gl_offs = 0;
   i=0;
-  glob(pattern, GLOB_DOOFFS, NULL, &globbuf);
-
-  if(globbuf.gl_pathc != 0){
+  // The correct way is checking return value, not globbuf.gl_pathc
+  if((glob(pattern, GLOB_DOOFFS, NULL, &globbuf)) != 0){
     while((globbuf.gl_pathv[i]!=NULL) && (total_image < MAX_IMG)){
       img[total_image] = imread(string(globbuf.gl_pathv[i]));
       if(!img[total_image].data){
@@ -162,6 +161,13 @@ int main(int argc, char** argv){
         // Clip the data here
         if(argc==7 || argc==8){
           Mat temp_image;
+          // Prevent array out of bound
+          if(boundX + boundW >= img[total_image].cols){
+            boundW = img[total_image].cols - boundX;
+          }
+          if(boundY + boundH >= img[total_image].rows){
+            boundH = img[total_image].rows - boundY;
+          }
           Rect region(boundX, boundY, boundW, boundH);
           Mat(img[total_image], region).copyTo(temp_image);
           img[total_image] = temp_image;
@@ -171,6 +177,8 @@ int main(int argc, char** argv){
       i++;
     }
   }
+  // Free the glob buffers
+  globfree(&globbuf);
   printf("Got %d images.\n", total_image);
   if(total_image==MAX_IMG){
     printf("Too many images...I only handle the first %d images.\n",total_image);
