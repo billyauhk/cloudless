@@ -152,7 +152,7 @@ int main(int argc, char** argv){
   globbuf.gl_offs = 0;
   i=0;
   // The correct way is checking return value, not globbuf.gl_pathc
-  if((glob(pattern, GLOB_DOOFFS, NULL, &globbuf)) != 0){
+  if((glob(pattern, GLOB_DOOFFS, NULL, &globbuf)) == 0){
     while((globbuf.gl_pathv[i]!=NULL) && (total_image < MAX_IMG)){
       img[total_image] = imread(string(globbuf.gl_pathv[i]));
       if(!img[total_image].data){
