@@ -29,6 +29,7 @@ Bill:  2013-07-27 22:18    Version 0.2.0 is out.
 #include <opencv2/opencv.hpp>
 #include <cstdio>
 #include <glob.h>
+#include <time.h>
 
 #define PARALLEL
 #ifdef PARALLEL
@@ -186,10 +187,8 @@ int main(int argc, char** argv){
     int emptyGlob = 0;
     int currentSlot, currentGlob;
 
-
-
 #ifdef PARALLEL
-    #pragma omp parallel private(currentSlot,currentGlob) shared(flag,total_image) 
+    #pragma omp parallel private(currentSlot,currentGlob) shared(flag,total_image)
 #endif
     {
       // Give everybody an empty slot and an empty glob
@@ -231,7 +230,6 @@ int main(int argc, char** argv){
             #pragma omp atomic
               flag *= 0;
           }
-
           // Normal load and cropping
           if((currentSlot<MAX_IMG)&&(currentGlob<globbuf.gl_pathc)&&(globbuf.gl_pathv[currentGlob]!=NULL)){
             img[currentSlot]=imread(string(globbuf.gl_pathv[currentGlob]));
@@ -245,11 +243,11 @@ int main(int argc, char** argv){
               }
               #pragma omp atomic
                 total_image++;
-              if(total_image%20==0){
+              /*if(total_image%20==0){
                 fprintf(stderr,"The %d-th image is loaded.\n",total_image);
-              }
+              }*/
 
-// STAGE: Giving Mark (put inside to enhance CPU utilization) ===========================================
+// STAGE: Giving Mark (put inside in attempt to enhance CPU utilization) =================================
     Mat gray = Mat(img[currentSlot]);
     cvtColor( img[currentSlot], gray, CV_RGB2GRAY );
     LUT(gray, lookUpTable, mark[currentSlot]);
@@ -294,7 +292,7 @@ int main(int argc, char** argv){
   #endif
 //=======================================================================================================
 
-              //fprintf(stderr,"Thread ID: %d loaded an image...\n", omp_get_thread_num());
+              //fprintf(stderr,"[%ld] Thread ID: %d loaded an image...\n", time(NULL), omp_get_thread_num());
             }
           }else{
             /*if(!flag){fprintf(stderr,"Thread ID: %d have no image to read as told by FLAG.\n", omp_get_thread_num());}
@@ -302,8 +300,6 @@ int main(int argc, char** argv){
           }
         }
       }
-    fprintf(stderr,"Thread ID: %d is waiting other threads.\n", omp_get_thread_num());
-    #pragma omp barrier
     }// end parallel
 
     fprintf(stderr,"End of parallel loading.\n");
