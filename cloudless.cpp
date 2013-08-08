@@ -144,39 +144,182 @@ int main(int argc, char** argv){
 
   //STAGE: Read images
   printf("Reading images...\n");
-  int i,j;
+  int i,j,row,col;
   total_image = 0;
 
   printf("Pattern to match: %s\n",pattern);
   glob_t globbuf;
   globbuf.gl_offs = 0;
-  i=0;
+
+  Mat lookUpTable(1, 256, CV_8U);
+  uint8_t* p = lookUpTable.data;
+  for(int i=0;i<256;i++){
+    p[i] = (i < 5 || i >= 250 ? 0 : 255);
+  }
+
   // The correct way is checking return value, not globbuf.gl_pathc
   if((glob(pattern, GLOB_DOOFFS, NULL, &globbuf)) == 0){
-    while((globbuf.gl_pathv[i]!=NULL) && (total_image < MAX_IMG)){
-      img[total_image] = imread(string(globbuf.gl_pathv[i]));
-      if(!img[total_image].data){
-        printf("No image data: %s\n",globbuf.gl_pathv[i]);
-      }else{
-        // Clip the data here
-        if(argc==7 || argc==8){
-          Mat temp_image;
-          // Prevent array out of bound
-          if(boundX + boundW >= img[total_image].cols){
-            boundW = img[total_image].cols - boundX;
-          }
-          if(boundY + boundH >= img[total_image].rows){
-            boundH = img[total_image].rows - boundY;
-          }
-          Rect region(boundX, boundY, boundW, boundH);
-          Mat(img[total_image], region).copyTo(temp_image);
-          img[total_image] = temp_image;
-        }
-        total_image++;
+    Rect region;
+    // Reading our first image
+    img[0] = imread(string(globbuf.gl_pathv[0]));
+    // This portion of the boundary-checking code is being factored out
+    // With assumption that all images are of the same size
+    if(argc==7 || argc==8){
+      // Prevent array out of bound
+      if(boundX + boundW >= img[0].cols){
+        boundW = img[0].cols - boundX;
       }
-      i++;
+      if(boundY + boundH >= img[0].rows){
+        boundH = img[0].rows - boundY;
+      }
+      region = Rect(boundX, boundY, boundW, boundH);
+
+      Mat temp_image; // Temporary buffer for clipping
+      Mat(img[0], region).copyTo(temp_image);
+      img[0] = temp_image;
     }
+
+    row = img[0].rows, col = img[0].cols;
+    int flag = 1;
+    // First image will be loaded twice...but that's just a very little overhead
+    int emptySlot = 0; // Can be set to other value later on (esp. when it is load after sort.)
+    int emptyGlob = 0;
+    int currentSlot, currentGlob;
+
+
+
+#ifdef PARALLEL
+    #pragma omp parallel private(currentSlot,currentGlob) shared(flag,total_image) 
+#endif
+    {
+      // Give everybody an empty slot and an empty glob
+      #pragma omp critical(getNewSlot)
+      {
+        currentSlot = emptySlot;
+        emptySlot++;
+        img[currentSlot].data=NULL; // Just to prevent some error
+        //fprintf(stderr,"Thread ID: %d gets the slot %d\n", omp_get_thread_num(), currentSlot);
+      }
+
+      while(flag){
+        if(img[currentSlot].data!=NULL){
+          // Slot have been used up, let's get a new one
+          #pragma omp critical(getNewSlot)
+          {
+            currentSlot = emptySlot;
+            emptySlot++;
+            img[currentSlot].data=NULL; // Just to prevent some error
+          }//end critical
+          //fprintf(stderr,"Thread ID: %d gets the slot %d\n", omp_get_thread_num(), currentSlot);
+          if(currentSlot>=MAX_IMG){
+            // There will be no more new slot, stop other flags coming here
+            #pragma omp atomic
+              flag *= 0;
+          }
+        }else{
+          // Slot is unused. Let us get some data.
+          //fprintf(stderr,"Thread ID: %d have slot %d\n", omp_get_thread_num(), currentSlot);
+          // Let us take a glob
+          #pragma omp critical(getNewGlob)
+          {
+            currentGlob = emptyGlob;
+            emptyGlob++;
+          }//end critical
+          //fprintf(stderr,"Thread ID: %d preparing to load %d-th image\n", omp_get_thread_num(), currentGlob);
+          if(currentGlob>=globbuf.gl_pathc){
+            // There will be no more new files, stop other flags coming here
+            #pragma omp atomic
+              flag *= 0;
+          }
+
+          // Normal load and cropping
+          if((currentSlot<MAX_IMG)&&(currentGlob<globbuf.gl_pathc)&&(globbuf.gl_pathv[currentGlob]!=NULL)){
+            img[currentSlot]=imread(string(globbuf.gl_pathv[currentGlob]));
+            // Check out the data
+            if(img[currentSlot].data!=NULL){
+              // Clip the data here
+              if(argc==7 || argc==8){
+                Mat temp_image; // Temporary buffer for clipping
+                Mat(img[currentSlot], region).copyTo(temp_image);
+                img[currentSlot] = temp_image;
+              }
+              #pragma omp atomic
+                total_image++;
+              if(total_image%20==0){
+                fprintf(stderr,"The %d-th image is loaded.\n",total_image);
+              }
+
+// STAGE: Giving Mark (put inside to enhance CPU utilization) ===========================================
+    Mat gray = Mat(img[currentSlot]);
+    cvtColor( img[currentSlot], gray, CV_RGB2GRAY );
+    LUT(gray, lookUpTable, mark[currentSlot]);
+
+  #ifdef ORIGINAL
+    // The original marking method by Charlie, but not working
+    //printf("Charlie marking\n");
+      Mat channel[3];
+      for(int j=0;j<3;j++){
+        channel[j] = Mat(row, col, CV_8UC1, 0);
+      }
+      split( img[currentSlot], channel );
+      for(int j=0;j<3;j++){
+        channel[j].convertTo(channel[j], CV_16UC1);
+      }
+      Mat sum = Mat(row, col, CV_16UC1, 0);
+      sum = channel[0] + channel[1] + channel[2];
+      mark[currentSlot] = (sum < 10 | sum > (3 * 255) - 3);
+
+      // Let us use the great "matrix operators" in OpenCV to encode the parallelism
+      Mat max_channel = max(channel[0],max(channel[1],channel[2]));
+      Mat min_channel = min(channel[0],min(channel[1],channel[2]));
+      Mat saturation = max_channel - min_channel;
+      Mat darkness = (255*3 - sum)/10;
+      saturation.convertTo(saturation, CV_8UC1);
+      darkness.convertTo(darkness, CV_8UC1);
+      mark[currentSlot] = (~mark[currentSlot]/255).mul((saturation + darkness)*0.5f, 1/(4.0f/3.0f)); // S channel
+  #else
+    // Our way...seems better?
+    // Then we give marks to remaining pixels...
+    // Depending on the S value in the HSV colorspace.
+    //printf("Bill marking\n");
+      Mat hsv = Mat(img[currentSlot].rows, img[currentSlot].cols, img[currentSlot].type(), 0);
+      Mat channel[3];
+
+      for(int j = 0;j<3;j++){
+        channel[j] = Mat(hsv.rows, hsv.cols, img[currentSlot].type(), 0);
+      }
+      cvtColor( img[currentSlot], hsv, CV_RGB2HSV);
+      split( hsv, channel );
+      mark[currentSlot] = mark[currentSlot].mul(channel[1], 1/255.0f); // S channel
+  #endif
+//=======================================================================================================
+
+              //fprintf(stderr,"Thread ID: %d loaded an image...\n", omp_get_thread_num());
+            }
+          }else{
+            /*if(!flag){fprintf(stderr,"Thread ID: %d have no image to read as told by FLAG.\n", omp_get_thread_num());}
+            else{fprintf(stderr,"Thread ID: %d got an invalid glob entry, it was the %d-th.\n", omp_get_thread_num(), currentGlob);}*/
+          }
+        }
+      }
+    fprintf(stderr,"Thread ID: %d is waiting other threads.\n", omp_get_thread_num());
+    #pragma omp barrier
+    }// end parallel
+
+    fprintf(stderr,"End of parallel loading.\n");
+    for(int i=0;i<total_image;i++){
+      if(img[i].data==NULL){
+        fprintf(stderr,"Discovered empty slot at %d-th...shoot\n",i);
+      }else{
+        //fprintf(stderr,"Image %d: %d x %d\n",i,img[i].rows,img[i].cols);
+      }
+    }
+
+  }else{
+    fprintf(stderr,"Error in return value of glob().\n");
+    exit(-1);
   }
+
   // Free the glob buffers
   globfree(&globbuf);
   printf("Got %d images.\n", total_image);
@@ -188,81 +331,11 @@ int main(int argc, char** argv){
     return -1;
   }
 
-  //STAGE: Give marks
-  printf("Giving marks to pixels...\n");
-  // First we identify NULL/Data-invalid pixels.
-  // These pixels are given zero marks directly.
-  Mat lookUpTable(1, 256, CV_8U);
-  uint8_t* p = lookUpTable.data;
-  for(int i=0;i<256;i++){
-    p[i] = (i < 5 || i >= 250 ? 0 : 255);
-  }
-
-  // This has to be kept as we still have to drop out the invalid pixels
-#ifdef PARALLEL
-  #pragma omp parallel for private(i)
-#endif
-  for(int i=0;i<total_image;i++){
-    Mat gray = Mat(img[i]);
-    cvtColor( img[i], gray, CV_RGB2GRAY );
-    LUT(gray, lookUpTable, mark[i]);
-  }
-
-  int row = img[0].rows, col = img[0].cols;
-  #ifdef ORIGINAL
-    // The original marking method by Charlie, but not working
-    printf("Charlie marking\n");
-    #ifdef PARALLEL
-    #pragma omp parallel for private(i)
-    #endif
-    for(int i=0;i<total_image;i++){
-      Mat channel[3];
-      for(int j=0;j<3;j++){
-        channel[j] = Mat(row, col, CV_8UC1, 0);
-      }
-      split( img[i], channel );
-      for(int j=0;j<3;j++){
-        channel[j].convertTo(channel[j], CV_16UC1);
-      }
-      Mat sum = Mat(row, col, CV_16UC1, 0);
-      sum = channel[0] + channel[1] + channel[2];
-      mark[i] = (sum < 10 | sum > (3 * 255) - 3);
-
-      // Let us use the great "matrix operators" in OpenCV to encode the parallelism
-      Mat max_channel = max(channel[0],max(channel[1],channel[2]));
-      Mat min_channel = min(channel[0],min(channel[1],channel[2]));
-      Mat saturation = max_channel - min_channel;
-      Mat darkness = (255*3 - sum)/10;
-      saturation.convertTo(saturation, CV_8UC1);
-      darkness.convertTo(darkness, CV_8UC1);
-      mark[i] = (~mark[i]/255).mul((saturation + darkness)*0.5f, 1/(4.0f/3.0f)); // S channel
-    }
-  #else
-    // Our way...seems better?
-    // Then we give marks to remaining pixels...
-    // Depending on the S value in the HSV colorspace.
-    printf("Bill marking\n");
-    #ifdef PARALLEL
-    #pragma omp parallel for private(i)
-    #endif
-    for(int i=0;i<total_image;i++){
-      Mat hsv = Mat(img[i].rows, img[i].cols, img[i].type(), 0);
-      Mat channel[3];
-
-      for(int j = 0;j<3;j++){
-        channel[j] = Mat(hsv.rows, hsv.cols, img[i].type(), 0);
-      }
-      cvtColor( img[i], hsv, CV_RGB2HSV);
-      split( hsv, channel );
-      mark[i] = mark[i].mul(channel[1], 1/255.0f); // S channel
-    } // end for each image i
-  #endif
-
   //STAGE: Sort pixels
   printf("Sorting pixels...\n");
   // Testing parallelization of the loop
   #ifdef PARALLEL
-  #pragma omp parallel for private(i,j,data)
+  #pragma omp parallel for private(i,j,data) collapse(2)
   #endif
   for(int i=0;i<row;i++){
     for(int j=0;j<col;j++){
@@ -333,7 +406,7 @@ int main(int argc, char** argv){
   int average_count = total_image>>2 +2; // Hard code, but seems working good...
 
   #ifdef PARALLEL
-  #pragma omp parallal private(sumR,sumG,sumB)
+  #pragma omp parallal private(sumR,sumG,sumB) collapse(2)
   #endif
   for(int i=0;i<row;i++){
     for(int j=0;j<col;j++){
