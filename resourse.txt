@@ -1,0 +1,17 @@
+linux1 4 9
+linux2 4 3
+linux3 4 3
+linux4 4 3
+linux5 4 9
+linux6 5 10
+linux7 5 10
+linux8 5 10
+linux9 5 10
+linux10 1 3
+linux11 1 7
+linux12 1 7
+linux13 1 7
+linux14 15 30
+linux15 15 30
+linux16 15 45
+linux17 15 45

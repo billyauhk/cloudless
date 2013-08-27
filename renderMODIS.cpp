@@ -8,7 +8,6 @@
 
 #include <iostream>
 #include <cstring>
-#include <sys/stat.h>
 #include <unistd.h>
 #include <cmath>
 #include <cctype>
@@ -19,8 +18,14 @@
 
 #define MACHINE_MAX 100
 #ifndef HOST_NAME_MAX
-    #define HOST_NAME_MAX 255
+#define HOST_NAME_MAX 255
 #endif
+
+// Image infomation
+#define WIDTH 512
+#define HEIGHT 512
+#define CHANNEL 3
+#define SCALE_CONSTANT 1.4
 
 using namespace std;
 
@@ -29,10 +34,13 @@ typedef struct
 {
     char hostname[HOST_NAME_MAX];
     int cpu_core; // Number of CPU core
-    int memory; // Total memory size in MB
+    int memory; // Total memory size in GB
 } machine_t;
 
-void matchFilePattern(char * pattern, off_t * file_size, long int * total_image)
+off_t min_mem; // The minimum memory size available per CPU core among all nodes in MB
+int total_cpu_core = 0; // The total number of CPU core
+
+void matchFilePattern(char * pattern, long int * total_image)
 {
     // ---------------------------------------------------------------
     // This function does the followings:
@@ -41,7 +49,6 @@ void matchFilePattern(char * pattern, off_t * file_size, long int * total_image)
     // ---------------------------------------------------------------
     
     glob_t globbuf;
-    stat_t statbuf;
     
     globbuf.gl_offs = 0;
     glob(pattern, GLOB_DOOFFS, NULL, &globbuf);
@@ -50,9 +57,6 @@ void matchFilePattern(char * pattern, off_t * file_size, long int * total_image)
         printf("No files match the pattern under this path.\n");
         exit(EXIT_FAILURE);
     } else {
-        if (stat(globbuf.gl_pathv[0], &statbuf) == 0) {
-            *file_size = statbuf.st_size;
-        }
         *total_image = globbuf.gl_pathc;
     }
 }
@@ -66,23 +70,56 @@ void parseResourceFile(char resource_file[], machine_t * machine, int * total_ma
     
     FILE * fd;
     int i;
-
+    
     if ((fd = fopen(resource_file, "r")) == NULL) {
         perror(resource_file);
         exit(EXIT_FAILURE);
     }
-    for (i = 0; (fscanf(fd, "%s %d %d", machine[i].hostname, &machine[i].cpu_core, &machine[i].memory)) != EOF; i++);
+    for (i = 0; (fscanf(fd, "%s %d %d", machine[i].hostname, &machine[i].cpu_core, &machine[i].memory)) != EOF; i++) {
+        total_cpu_core += machine[i].cpu_core;
+        if (i == 0) {
+            min_mem = (machine[i].memory << 10) / machine[i].cpu_core;
+        } else if (min_mem > (machine[i].memory << 10) / machine[i].cpu_core) {
+            min_mem = (machine[i].memory << 10) / machine[i].cpu_core;
+        }
+    }
     *total_machine = i;
     fclose(fd);
 }
 
-void jobsAlloc(machine_t machine[], off_t file_size, int total_machine, long int total_image)
+void jobsAlloc(machine_t machine[], int total_machine, long int total_image)
 {
     // ---------------------------------------------------------------
     // This function does the followings:
     // (1)run the jobs allocation algorithm according to CPU and RAM
     // (2)output a mapping of jobs and handling machines
     // ---------------------------------------------------------------
+    
+    int row, col;
+    off_t alloc_pointer = 1; // The pointer to the next allocation starting row number
+    off_t alloc_row; // The number of row being allocated to a CPU core
+    off_t req_mem_size = (off_t)WIDTH * HEIGHT * CHANNEL * SCALE_CONSTANT / (1024 * 1024); // Required memory size for one tile in MB
+    
+    row = col = (unsigned int)sqrt(total_image);
+    alloc_row = min_mem / (req_mem_size * row);
+    if (alloc_row == 0) { // A weakness of the algorithm: When it has not enough memory to handle even one row
+        printf("Too many images that the program cannot handle!");
+        exit(EXIT_FAILURE);
+    }
+    for (int i = 0; i < total_machine && alloc_pointer != row; i++) {
+        for (int j = 0; j < machine[i].cpu_core && alloc_pointer != row; j++) {
+            printf("%s CPU Core %d: Row %lld - ", machine[i].hostname, j+1, alloc_pointer);
+            if ((alloc_pointer += alloc_row) > row) {
+                alloc_pointer = row;
+            }
+            printf("%lld\n", alloc_pointer);
+        }
+        if (i == total_machine - 1) { // If it is the last machine and
+            if (alloc_pointer < row) { // it leaves some unallocated rows,
+                i = -1; // reset "i" to let the algorithm run again starting from the first machine.
+            }
+        }
+    }
 }
 
 int main(int argc, const char * argv[])
@@ -91,7 +128,6 @@ int main(int argc, const char * argv[])
     int total_machine;
     long int total_image;
     machine_t machine[MACHINE_MAX];
-    off_t file_size; // File size in unit of Byte(B)
     
     if (argc != 4) {
         printf("Usage: %s [folder path] [pattern] [resource file]\n", argv[0]);
@@ -109,11 +145,10 @@ int main(int argc, const char * argv[])
         exit(EXIT_FAILURE);
     }
     
-    matchFilePattern(pattern, &file_size, &total_image);
+    matchFilePattern(pattern, &total_image);
     
-    jobsAlloc(machine, file_size, total_machine, total_image);
+    jobsAlloc(machine, total_machine, total_image);
     
     return 0;
 }
-
 
