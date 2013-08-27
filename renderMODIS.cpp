@@ -6,6 +6,8 @@
  
  */
 
+#include <stdio.h>
+#include <cstdlib>
 #include <iostream>
 #include <cstring>
 #include <unistd.h>
@@ -29,7 +31,6 @@
 
 using namespace std;
 
-typedef struct stat stat_t;
 typedef struct
 {
     char hostname[HOST_NAME_MAX];
@@ -96,7 +97,7 @@ void jobsAlloc(machine_t machine[], int total_machine, long int total_image)
     // ---------------------------------------------------------------
     
     int row, col;
-    off_t alloc_pointer = 1; // The pointer to the next allocation starting row number
+    off_t alloc_pointer = 1; // The pointer to the starting row number of next allocation
     off_t alloc_row; // The number of row being allocated to a CPU core
     off_t req_mem_size = (off_t)WIDTH * HEIGHT * CHANNEL * SCALE_CONSTANT / (1024 * 1024); // Required memory size for one tile in MB
     
@@ -108,11 +109,11 @@ void jobsAlloc(machine_t machine[], int total_machine, long int total_image)
     }
     for (int i = 0; i < total_machine && alloc_pointer != row; i++) {
         for (int j = 0; j < machine[i].cpu_core && alloc_pointer != row; j++) {
-            printf("%s CPU Core %d: Row %lld - ", machine[i].hostname, j+1, alloc_pointer);
+            printf("%s CPU Core %d: Row %lld - ", machine[i].hostname, j+1, (long long int)alloc_pointer);
             if ((alloc_pointer += alloc_row) > row) {
                 alloc_pointer = row;
             }
-            printf("%lld\n", alloc_pointer);
+            printf("%lld\n", (long long int)alloc_pointer);
         }
         if (i == total_machine - 1) { // If it is the last machine and
             if (alloc_pointer < row) { // it leaves some unallocated rows,
