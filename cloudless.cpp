@@ -46,6 +46,7 @@ int total_image;
 Mat img[MAX_IMG];
 Mat mark[MAX_IMG];
 Mat final_image; // Where we put the average image
+Mat final_aux; // Auxiliary image for diagnosis
 
 #define numChannel 3
 typedef struct data_s{
@@ -428,6 +429,39 @@ int main(int argc, char** argv){
       imwrite(argv[1]+string("_")+argv[6]+string(".png"), final_image, compression_params);    
     }else{
       imwrite(argv[1]+string(".png"), final_image, compression_params);
+    }
+  }catch(runtime_error& ex){
+    fprintf(stderr, "Exception converting image to PNG format: %s\n", ex.what());
+    return 1;
+  }
+
+// Generates the auxiliary image
+// R = Median of the Mark, G = Average of the Mark, B = Weighted average (weight: 1/2, 1/4, 1/8, ...)
+  final_aux = cvCreateMat(row, col, img[0].type());
+
+  #ifdef PARALLEL
+  #pragma omp parallal private(sumR,sumG,sumB) collapse(2)
+  #endif
+  for(int i=0;i<row;i++){
+    for(int j=0;j<col;j++){
+      float sumR, sumG, sumB;
+      sumR = sumG = sumB = 0;
+      for(int k=0;(k<total_image)&&(mark[k].data!=NULL);k++){
+        sumG += ((uint8_t*)(mark[k].data))[i*col+j+1];
+        sumB += ((uint8_t*)(mark[k].data))[i*col+j+2] >> (k+1);
+      }
+// This is going to fail for some value of total_image too small
+      sumR = ((uint8_t*)(mark[total_image>>1].data))[i*col+j+2];
+      ((uint8_t*)(final_aux.data))[i*col*numChannel+j*numChannel+0] = round(sumB);
+      ((uint8_t*)(final_aux.data))[i*col*numChannel+j*numChannel+1] = round(sumG/((float) average_count));
+      ((uint8_t*)(final_aux.data))[i*col*numChannel+j*numChannel+2] = round(sumR);
+    }
+  }
+  try{
+    if(argc==7 || argc==8){
+      imwrite(argv[1]+string("_")+argv[6]+string("_aux.png"), final_aux, compression_params);    
+    }else{
+      imwrite(argv[1]+string("_aux.png"), final_aux, compression_params);
     }
   }catch(runtime_error& ex){
     fprintf(stderr, "Exception converting image to PNG format: %s\n", ex.what());
