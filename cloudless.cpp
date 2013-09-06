@@ -121,19 +121,19 @@ int main(int argc, char** argv){
 
   switch(argc){
     case 2:
-      sprintf(pattern, "%s/*.jpg", argv[1]);
+      sprintf(pattern, "%s/*a.250m.jpg", argv[1]);
       break;
     case 3:
-      sprintf(pattern, "%s/*.%s*.jpg", argv[1], argv[2]);
+      sprintf(pattern, "%s/*.%s*a.250m.jpg", argv[1], argv[2]);
       break;
     case 7:
-      sprintf(pattern, "%s/*.jpg", argv[1]);
+      sprintf(pattern, "%s/*a.250m.jpg", argv[1]);
       boundX = atoi(argv[2]); boundY = atoi(argv[3]);
       boundW = atoi(argv[4]); boundH = atoi(argv[5]);
       printf("Suffix: %s\n", argv[6]);
       break;
     case 8:
-      sprintf(pattern, "%s/*.%s*.jpg", argv[1], argv[7]);
+      sprintf(pattern, "%s/*.%s*a.250m.jpg", argv[1], argv[7]);
       boundX = atoi(argv[2]); boundY = atoi(argv[3]);
       boundW = atoi(argv[4]); boundH = atoi(argv[5]);
       printf("Suffix: %s\n", argv[6]);
@@ -402,6 +402,7 @@ int main(int argc, char** argv){
   final_image = cvCreateMat(row, col, img[0].type());
   int average_count = total_image>>2 +2; // Hard code, but seems working good...
 
+  // Average
   #ifdef PARALLEL
   #pragma omp parallal private(sumR,sumG,sumB) collapse(2)
   #endif
@@ -420,6 +421,18 @@ int main(int argc, char** argv){
     }
   }
 
+  // Colour Adjustment: Copy the saturation value from img[0]
+  Mat hsv = Mat(img[0].rows, img[0].cols, img[0].type(), 0);
+  cvtColor( final_image, final_aux, CV_RGB2HSV);
+  cvtColor( img[0], hsv, CV_RGB2HSV);
+  for(int i=0;i<row;i++){
+    for(int j=0;j<col;j++){
+      // Use saturation (channel 1) only
+      ((uint8_t*)(final_aux.data))[i*col*numChannel+j*numChannel+1] = ((uint8_t*)(hsv.data))[i*col*numChannel+j*numChannel+1];
+    }
+  }
+  cvtColor( final_aux, final_image, CV_HSV2RGB);
+
   vector<int> compression_params;
   compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
   compression_params.push_back(3); // Larger: smaller size, longer time
@@ -435,38 +448,6 @@ int main(int argc, char** argv){
     return 1;
   }
 
-// Generates the auxiliary image
-// R = Median of the Mark, G = Average of the Mark, B = Weighted average (weight: 1/2, 1/4, 1/8, ...)
-  final_aux = cvCreateMat(row, col, img[0].type());
-
-  #ifdef PARALLEL
-  #pragma omp parallal private(sumR,sumG,sumB) collapse(2)
-  #endif
-  for(int i=0;i<row;i++){
-    for(int j=0;j<col;j++){
-      float sumR, sumG, sumB;
-      sumR = sumG = sumB = 0;
-      for(int k=0;(k<total_image)&&(mark[k].data!=NULL);k++){
-        sumG += ((uint8_t*)(mark[k].data))[i*col+j+1];
-        sumB += ((uint8_t*)(mark[k].data))[i*col+j+2] >> (k+1);
-      }
-// This is going to fail for some value of total_image too small
-      sumR = ((uint8_t*)(mark[total_image>>1].data))[i*col+j+2];
-      ((uint8_t*)(final_aux.data))[i*col*numChannel+j*numChannel+0] = round(sumB);
-      ((uint8_t*)(final_aux.data))[i*col*numChannel+j*numChannel+1] = round(sumG/((float) average_count));
-      ((uint8_t*)(final_aux.data))[i*col*numChannel+j*numChannel+2] = round(sumR);
-    }
-  }
-  try{
-    if(argc==7 || argc==8){
-      imwrite(argv[1]+string("_")+argv[6]+string("_aux.png"), final_aux, compression_params);    
-    }else{
-      imwrite(argv[1]+string("_aux.png"), final_aux, compression_params);
-    }
-  }catch(runtime_error& ex){
-    fprintf(stderr, "Exception converting image to PNG format: %s\n", ex.what());
-    return 1;
-  }
 
   printf("Program ends.\n");
   return 0;

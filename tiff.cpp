@@ -13,10 +13,11 @@ int main(int argc, char* argv[]){
 
   printf("Trying to read %s\n",argv[1]);
   filename = string(argv[1]);
-  img = imread(filename, CV_LOAD_IMAGE_ANYDEPTH|CV_LOAD_IMAGE_COLOR);
+//  img = imread(filename, CV_LOAD_IMAGE_ANYDEPTH|CV_LOAD_IMAGE_COLOR);
+  img = imread(filename, CV_LOAD_IMAGE_ANYDEPTH);
 
   printf("%d x %d in size\n", img.rows, img.cols);
-  
+
   switch(img.depth()){
     case CV_8U:printf("uint8_t");break;
     case CV_8S:printf("int8_t");break;
