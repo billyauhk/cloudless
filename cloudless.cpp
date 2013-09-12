@@ -249,9 +249,6 @@ int main(int argc, char** argv){
               snprintf(currentName+(p+2),500-(p-3),"opaque.250m.png");
               //printf("NAME: %s\n",currentName);
               mark[currentSlot]=imread(string(currentName),CV_LOAD_IMAGE_GRAYSCALE);
-              if(mark[currentSlot].data==NULL){
-                
-              }
               // Clip the data here
               if(argc==7 || argc==8){
                 Mat temp_image; // Temporary buffer for clipping
@@ -419,7 +416,7 @@ int main(int argc, char** argv){
   //STAGE: Average and Output
   printf("Averaging and Output.\n");
   final_image = cvCreateMat(row, col, img[0].type());
-  int average_count = total_image>>4 +2; // Hard code, but seems working good...
+  int average_count = total_image>>2 +2; // Hard code, but seems working good...
 
   // Average
   #ifdef PARALLEL
@@ -467,9 +464,6 @@ int main(int argc, char** argv){
     return 1;
   }
 
-
   printf("Program ends.\n");
   return 0;
 }
-
-
