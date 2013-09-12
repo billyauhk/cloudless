@@ -24,6 +24,7 @@ Bill:  2013-07-27 22:18    Version 0.2.0 is out.
 #include <cstdlib>
 #include <iostream>
 #include <cassert>
+#include <cstring>
 #include <opencv/cv.h>
 #include <opencv/highgui.h>
 #include <opencv2/opencv.hpp>
@@ -187,9 +188,10 @@ int main(int argc, char** argv){
     int emptySlot = 0; // Can be set to other value later on (esp. when it is load after sort.)
     int emptyGlob = 0;
     int currentSlot, currentGlob;
+    char currentName[500]; // A scratch space to generate the filename of the opaque mask
 
 #ifdef PARALLEL
-    #pragma omp parallel private(currentSlot,currentGlob) shared(flag,total_image)
+    #pragma omp parallel private(currentSlot,currentGlob,currentName) shared(flag,total_image)
 #endif
     {
       // Give everybody an empty slot and an empty glob
@@ -212,7 +214,7 @@ int main(int argc, char** argv){
           }//end critical
           //fprintf(stderr,"Thread ID: %d gets the slot %d\n", omp_get_thread_num(), currentSlot);
           if(currentSlot>=MAX_IMG){
-            // There will be no more new slot, stop other flags coming here
+            // There will be no more new slot, stop other threads coming here
             #pragma omp atomic
               flag *= 0;
           }
@@ -227,7 +229,7 @@ int main(int argc, char** argv){
           }//end critical
           //fprintf(stderr,"Thread ID: %d preparing to load %d-th image\n", omp_get_thread_num(), currentGlob);
           if(currentGlob>=globbuf.gl_pathc){
-            // There will be no more new files, stop other flags coming here
+            // There will be no more new files, stop other threads coming here
             #pragma omp atomic
               flag *= 0;
           }
@@ -236,11 +238,27 @@ int main(int argc, char** argv){
             img[currentSlot]=imread(string(globbuf.gl_pathv[currentGlob]));
             // Check out the data
             if(img[currentSlot].data!=NULL){
+              // Load the opaque mask
+              strncpy(currentName,globbuf.gl_pathv[currentGlob],500);
+// Filename are in the form of "RRGlobal_r10c20.2012001.aqua.250m.jpg" -> "RRGlobal_r10c20.2012001.aqua.opaque.250m.png"
+              int p, comma;
+              for(p = strlen(currentName),comma=0;comma!=2; p--){
+                if(currentName[p]=='.')comma++;
+              } // Make currentName[p] points to the second comma
+              currentName[p+2]='\0';
+              snprintf(currentName+(p+2),500-(p-3),"opaque.250m.png");
+              //printf("NAME: %s\n",currentName);
+              mark[currentSlot]=imread(string(currentName),CV_LOAD_IMAGE_GRAYSCALE);
+              if(mark[currentSlot].data==NULL){
+                
+              }
               // Clip the data here
               if(argc==7 || argc==8){
                 Mat temp_image; // Temporary buffer for clipping
                 Mat(img[currentSlot], region).copyTo(temp_image);
                 img[currentSlot] = temp_image;
+                Mat(mark[currentSlot], region).copyTo(temp_image);
+                mark[currentSlot] = temp_image;
               }
               #pragma omp atomic
                 total_image++;
@@ -249,12 +267,12 @@ int main(int argc, char** argv){
               }*/
 
 // STAGE: Giving Mark (put inside in attempt to enhance CPU utilization) =================================
+  #ifdef ORIGINAL
     Mat gray = Mat(img[currentSlot]);
     cvtColor( img[currentSlot], gray, CV_RGB2GRAY );
     LUT(gray, lookUpTable, mark[currentSlot]);
-
-  #ifdef ORIGINAL
-    // The original marking method by Charlie, but not working
+    // The original marking method by Charlie
+    // Not upgraded when we are moving to accurate masking
     //printf("Charlie marking\n");
       Mat channel[3];
       for(int j=0;j<3;j++){
@@ -289,6 +307,7 @@ int main(int argc, char** argv){
       }
       cvtColor( img[currentSlot], hsv, CV_RGB2HSV);
       split( hsv, channel );
+      // If they are 0 already, then they are really masked out and not used
       mark[currentSlot] = mark[currentSlot].mul(channel[1], 1/255.0f); // S channel
   #endif
 //=======================================================================================================
@@ -400,7 +419,7 @@ int main(int argc, char** argv){
   //STAGE: Average and Output
   printf("Averaging and Output.\n");
   final_image = cvCreateMat(row, col, img[0].type());
-  int average_count = total_image>>2 +2; // Hard code, but seems working good...
+  int average_count = total_image>>4 +2; // Hard code, but seems working good...
 
   // Average
   #ifdef PARALLEL
@@ -422,7 +441,7 @@ int main(int argc, char** argv){
   }
 
   // Colour Adjustment: Copy the saturation value from img[0]
-  Mat hsv = Mat(img[0].rows, img[0].cols, img[0].type(), 0);
+/*  Mat hsv = Mat(img[0].rows, img[0].cols, img[0].type(), 0);
   cvtColor( final_image, final_aux, CV_RGB2HSV);
   cvtColor( img[0], hsv, CV_RGB2HSV);
   for(int i=0;i<row;i++){
@@ -431,7 +450,7 @@ int main(int argc, char** argv){
       ((uint8_t*)(final_aux.data))[i*col*numChannel+j*numChannel+1] = ((uint8_t*)(hsv.data))[i*col*numChannel+j*numChannel+1];
     }
   }
-  cvtColor( final_aux, final_image, CV_HSV2RGB);
+  cvtColor( final_aux, final_image, CV_HSV2RGB);*/
 
   vector<int> compression_params;
   compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
