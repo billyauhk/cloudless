@@ -249,6 +249,11 @@ int main(int argc, char** argv){
               snprintf(currentName+(p+2),500-(p-3),"opaque.250m.png");
               //printf("NAME: %s\n",currentName);
               mark[currentSlot]=imread(string(currentName),CV_LOAD_IMAGE_GRAYSCALE);
+              if(mark[currentSlot].data==NULL){
+                img[currentSlot].data=NULL; // Throw away the image data :(
+                fprintf(stderr,"Missing opaque mask for %s\n",currentName);
+                continue;
+              }
               // Clip the data here
               if(argc==7 || argc==8){
                 Mat temp_image; // Temporary buffer for clipping
