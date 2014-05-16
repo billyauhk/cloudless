@@ -1,7 +1,9 @@
 CC=g++
 CFLAGS=-O2
+INC_PATH=-I/usr/include/gdal/ -I/usr/local/include
+LD_PATH=-L/usr/lib/
 
-default:cloudless
+default:cloudless gibs_download
 
 cloudless:cloudless.cpp
 	$(CC) $(CFLAGS) cloudless.cpp -o cloudless -I/usr/local/include \
@@ -21,6 +23,9 @@ version:version.cpp
 		`pkg-config opencv --cflags --libs`
 renderMODIS:renderMODIS.cpp
 	$(CC) $(CFLAGS) renderMODIS.cpp -o renderMODIS
+gibs_download:gibs_download.cpp
+	LD_LIBRARY_PATH=${LD_PATH} g++ gibs_download.cpp -o gibs_download \
+		${INC_PATH} ${LD_PATH} -lgdal1.7.0 `pkg-config opencv --cflags --libs` -fopenmp -lgomp
 fixpath:
 	sudo ldconfig -v
 	echo "export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
