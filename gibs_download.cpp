@@ -4,6 +4,7 @@ This program is not complete, as the input parameters and outputs still have to 
 BTW, the corrected reflectance from GIBS seems to be more reliable to me.
 
 http://map1.vis.earthdata.nasa.gov/wmts-geo/MODIS_Terra_Data_No_Data/default/2014-01-01/EPSG4326_250m/0/0/0.png
+How about 250m water mask? It could also be used.
 */
 
 // Headers for GDAL
@@ -22,7 +23,35 @@ http://map1.vis.earthdata.nasa.gov/wmts-geo/MODIS_Terra_Data_No_Data/default/201
 using namespace cv;
 using namespace std;
 
-int main(int argc, char* argv[]){
+  char normal_bounds[] = "<UpperLeftX>-180.0</UpperLeftX><UpperLeftY>90</UpperLeftY><LowerRightX>396.0</LowerRightX><LowerRightY>-198</LowerRightY><TileLevel>8</TileLevel><TileCountX>2</TileCountX><TileCountY>1</TileCountY>";
+  char wms_format[] = "<GDAL_WMS>"
+    "<Service name=\"TMS\">"
+      // arctic/geo/antarctic, Terra/Aqua, CorrectedReflectance_TrueColor/Data_No_Data, then yyyy-mm-dd, EPSG , jpg/png
+      "<ServerUrl>http://map1.vis.earthdata.nasa.gov/wmts-%s/MODIS_%s_%s/default/%04d-%02d-%02d/%s_250m/${z}/${y}/${x}.%s</ServerUrl>"
+    "</Service>"
+    "<DataWindow>"
+      "<UpperLeftX>-180.0</UpperLeftX><UpperLeftY>90</UpperLeftY><LowerRightX>396.0</LowerRightX><LowerRightY>-198</LowerRightY><TileLevel>8</TileLevel><TileCountX>2</TileCountX><TileCountY>1</TileCountY>"
+      "<YOrigin>top</YOrigin>"
+    "</DataWindow>"
+    // North - EPSG:3413, Rectangular - EPSG:4326, South - EPSG:3031
+    "<Projection>%s</Projection>"
+    "<BlockSizeX>512</BlockSizeX>"
+    "<BlockSizeY>512</BlockSizeY>"
+    // JPG - 3, PNG - 4
+    "<BandsCount>%u</BandsCount>"
+  "</GDAL_WMS>";
+
+// Data common to all threads
+int year, month, day;
+int row, col;
+int daynum;
+
+typedef enum {NORTH, NORMAL, SOUTH} region;
+typedef enum {TERRA, AQUA} satellite;
+typedef enum {REFLECTANCE, MASK} data_layer;
+typedef enum {JPG, PNG} data_format;
+
+int download(region regionFlag, satellite satFlag, data_layer dataFlag, data_format typeFlag){
   GDALDataset *poDataset = NULL;
   Mat imageBuffer, outputBuffer;
   double pixel2geo[6];
@@ -31,61 +60,41 @@ int main(int argc, char* argv[]){
   uint64_t xsize, ysize;
   char GIBS_XML[1000];
   char outFileName[100];
-  int row, col;
-  int year, month, day;
   int numChannel;
 
-  // No Check arguments
-      row = atoi(argv[2]);
-      col = atoi(argv[3]);
-     year = atoi(argv[4]);
-    month = atoi(argv[5]);
-      day = atoi(argv[6]);
-  // Prepare the GDAL driver
-    GDALAllRegister();
-
   // Get the data
-
-    sprintf(GIBS_XML, 
-    "<GDAL_WMS>" \
-      "<Service name=\"TMS\">" \
-        "<ServerUrl>http://map1.vis.earthdata.nasa.gov/wmts-geo/MODIS_%s_CorrectedReflectance_TrueColor/default/%04d-%02d-%02d/EPSG4326_250m/${z}/${y}/${x}.jpg</ServerUrl>" \
-      "</Service>" \
-      "<DataWindow>" \
-        "<UpperLeftX>-180.0</UpperLeftX>" \
-        "<UpperLeftY>90</UpperLeftY>" \
-        "<LowerRightX>396.0</LowerRightX>" \
-        "<LowerRightY>-198</LowerRightY>" \
-        "<TileLevel>8</TileLevel>" \
-        "<TileCountX>2</TileCountX>" \
-        "<TileCountY>1</TileCountY>" \
-        "<YOrigin>top</YOrigin>" \
-      "</DataWindow>" \
-      "<Projection>EPSG:4326</Projection>" \
-      "<BlockSizeX>512</BlockSizeX>" \
-      "<BlockSizeY>512</BlockSizeY>" \
-      "<BandsCount>3</BandsCount>" \
-    "</GDAL_WMS>", argv[1], year, month, day);
-
+    sprintf(GIBS_XML, wms_format, /* Region name    */ (regionFlag==NORTH)?"arctic":((regionFlag==NORMAL)?"geo":"antarctic"),
+                                  /*Satellite  name */ (satFlag==TERRA)?"Terra":"Aqua",
+                                  /*Data layer name */ (dataFlag==REFLECTANCE)?"CorrectedReflectance_TrueColor":"Data_No_Data",
+                                                       year, month, day,
+                                  /*Region EPSG code*/ (regionFlag==NORTH)?"EPSG3413":((regionFlag==NORMAL)?"EPSG4326":"EPSG3031"),
+                                  /*Data Format     */ (typeFlag==JPG)?"jpg":"png",
+                                  /*Region EPSG code*/ (regionFlag==NORTH)?"EPSG:3413":((regionFlag==NORMAL)?"EPSG:4326":"EPSG:3031"),
+                                                       (typeFlag==JPG)?3:4);
+    printf("%s", GIBS_XML);
   // Open file
     poDataset = (GDALDataset*) GDALOpen(GIBS_XML, GA_ReadOnly);
     if(!poDataset){
-      fprintf(stderr,"File cannot be opened!\n");exit(-1);
+      fprintf(stderr,"File cannot be opened!\n");return 1;
     }
 
   // Print some metadata
     xsize = poDataset->GetRasterXSize();
     ysize = poDataset->GetRasterYSize();
-    printf("Raster Size: %d x %d\n", xsize, ysize);
     numChannel = poDataset->GetRasterCount();
-    printf("Raster Count: %d\n", numChannel);
 
   // Calculate coordinates
     poDataset->GetGeoTransform(pixel2geo);
     GDALInvGeoTransform(pixel2geo, geo2pixel);
 
     double lat_offset, lon_offset;
-    GDALApplyGeoTransform(geo2pixel, (col-20)*9.0, (row-9)*9.0, &lon_offset, &lat_offset);
+    switch(regionFlag){
+      case NORTH:return 1;break;
+      case NORMAL:
+        GDALApplyGeoTransform(geo2pixel, (col-20)*9.0, (row-9)*9.0, &lon_offset, &lat_offset);
+      break;
+      case SOUTH:return 1;break;
+    }
     printf("Offset=(%lf,%lf)\n",lon_offset,lat_offset);
 
   // Read Image data
@@ -95,10 +104,10 @@ int main(int argc, char* argv[]){
     xsize = 4096;
 
     imageBuffer.create(ysize, xsize, CV_8UC1);
-    outputBuffer.create(ysize, xsize, CV_8UC3);
-    outputBuffer.zeros(ysize, xsize, CV_8U);
+    outputBuffer.create(ysize, xsize, (typeFlag==JPG)?CV_8UC3:CV_8UC4);
+    outputBuffer.zeros(ysize, xsize, (typeFlag==JPG)?CV_8UC3:CV_8UC4);
     int bandArray[1];
-    for(int i=0;i<3;i++){
+    for(int i=0;i<((typeFlag==JPG)?3:4);i++){
       bandArray[0] = i+1;
       imageBuffer.zeros(ysize, xsize, CV_8U);
       poDataset->RasterIO(GF_Read, xmin, ymin, xsize, ysize,
@@ -111,8 +120,32 @@ int main(int argc, char* argv[]){
       }
     }
 
-    sprintf(outFileName, "RRGlobal_r%dc%d.%04d-%02d-%02d.%s.250m.jpg", row, col, year, month, day, argv[1]);
-    imwrite(outFileName, outputBuffer);
+    if(typeFlag==PNG){
+      outputBuffer = (outputBuffer==0);
+      outputBuffer.convertTo(outputBuffer, CV_8UC1, 1, 0);
+    }
 
+    sprintf(outFileName, "%s_r%dc%d.%04d%03d.%s%s250m.%s", (regionFlag==NORTH)?"RRArctic":((regionFlag==NORMAL)?"RRGlobal":"RRAntarctic"), row, col, year, daynum,
+                                                          (satFlag==TERRA)?"terra":"aqua", (dataFlag==REFLECTANCE)?".":".opaque", (typeFlag==JPG)?"jpg":"png");
+    imwrite(outFileName, outputBuffer);
+    printf("File %s is written\n", outFileName);
     return 0;
+}
+
+int main(int argc, char* argv[]){
+  // New main function
+
+  // Read arguments
+  year = 2014; month = 1; day = 1; daynum = 1;
+  row = 12; col = 32;
+
+  // Prepare the GDAL driver
+  GDALAllRegister();
+  //download(NORMAL, TERRA, REFLECTANCE, JPG);
+  //download(NORMAL, AQUA, REFLECTANCE, JPG);
+  for(day=1;day<=16;day++){
+    daynum=day;
+    download(NORMAL, TERRA, MASK, PNG);
+  }
+  return 0;
 }
