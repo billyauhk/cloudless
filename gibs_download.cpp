@@ -27,15 +27,15 @@ using namespace cv;
 using namespace std;
 
   char normal_bounds[] = "<UpperLeftX>-180.0</UpperLeftX><UpperLeftY>90</UpperLeftY><LowerRightX>396.0</LowerRightX><LowerRightY>-198</LowerRightY><TileLevel>8</TileLevel><TileCountX>2</TileCountX><TileCountY>1</TileCountY>";
+  char arctic_bounds[] = "<UpperLeftX>-4194304.0</UpperLeftX><UpperLeftY>4194304.0</UpperLeftY><LowerRightX>-4194304.0</LowerRightX><LowerRightY>4194304.0</LowerRightY><TileLevel>5</TileLevel><TileCountX>2</TileCountX><TileCountY>2</TileCountY>";
+  char antarctic_bounds[] = "<UpperLeftX>-4194304.0</UpperLeftX><UpperLeftY>4194304.0</UpperLeftY><LowerRightX>-4194304.0</LowerRightX><LowerRightY>4194304.0</LowerRightY><TileLevel>5</TileLevel><TileCountX>2</TileCountX><TileCountY>2</TileCountY>";
+
   char wms_format[] = "<GDAL_WMS>"
     "<Service name=\"TMS\">"
       // arctic/geo/antarctic, Terra/Aqua, CorrectedReflectance_TrueColor/Data_No_Data, then yyyy-mm-dd, EPSG , jpg/png
       "<ServerUrl>http://map1.vis.earthdata.nasa.gov/wmts-%s/MODIS_%s_%s/default/%04d-%02d-%02d/%s_250m/${z}/${y}/${x}.%s</ServerUrl>"
     "</Service>"
-    "<DataWindow>"
-      "<UpperLeftX>-180.0</UpperLeftX><UpperLeftY>90</UpperLeftY><LowerRightX>396.0</LowerRightX><LowerRightY>-198</LowerRightY><TileLevel>8</TileLevel><TileCountX>2</TileCountX><TileCountY>1</TileCountY>"
-      "<YOrigin>top</YOrigin>"
-    "</DataWindow>"
+    "<DataWindow>%s<YOrigin>top</YOrigin></DataWindow>"
     // North - EPSG:3413, Rectangular - EPSG:4326, South - EPSG:3031
     "<Projection>%s</Projection>"
     "<BlockSizeX>512</BlockSizeX>"
@@ -72,9 +72,10 @@ int download(region regionFlag, satellite satFlag, data_layer dataFlag, data_for
                                                        year, month, day,
                                   /*Region EPSG code*/ (regionFlag==NORTH)?"EPSG3413":((regionFlag==NORMAL)?"EPSG4326":"EPSG3031"),
                                   /*Data Format     */ (typeFlag==JPG)?"jpg":"png",
+                                  /*Region EPSG code*/ (regionFlag==NORTH)?arctic_bounds:((regionFlag==NORMAL)?normal_bounds:antarctic_bounds),
                                   /*Region EPSG code*/ (regionFlag==NORTH)?"EPSG:3413":((regionFlag==NORMAL)?"EPSG:4326":"EPSG:3031"),
                                                        (typeFlag==JPG)?3:4);
-    printf("%s", GIBS_XML);
+    printf("%s\n\n", GIBS_XML);
   // Open file
     poDataset = (GDALDataset*) GDALOpen(GIBS_XML, GA_ReadOnly);
     if(!poDataset){
@@ -92,17 +93,23 @@ int download(region regionFlag, satellite satFlag, data_layer dataFlag, data_for
 
     double lat_offset, lon_offset;
     switch(regionFlag){
-      case NORTH:return 1;break;
+      case NORTH:
+        xmin = (col-1)*4096;
+        ymin = (6-row)*4096;
+        break;
       case NORMAL:
         GDALApplyGeoTransform(geo2pixel, (col-20)*9.0, (row-9)*9.0, &lon_offset, &lat_offset);
+        xmin = (int) lon_offset;
+        ymin = (int) lat_offset;
       break;
-      case SOUTH:return 1;break;
+      case SOUTH:
+        xmin = (col-1)*4096;
+        ymin = (6-row)*4096;
+        break;
     }
     printf("Offset=(%lf,%lf)\n",lon_offset,lat_offset);
 
   // Read Image data
-    xmin = (int) lon_offset;
-    ymin = (int) lat_offset;
     ysize = 4096;
     xsize = 4096;
 
@@ -128,8 +135,8 @@ int download(region regionFlag, satellite satFlag, data_layer dataFlag, data_for
       outputBuffer.convertTo(outputBuffer, CV_8UC1, 1, 0);
     }
 
-    sprintf(outFileName, "%s_r%dc%d.%04d%03d.%s%s250m.%s", (regionFlag==NORTH)?"RRArctic":((regionFlag==NORMAL)?"RRGlobal":"RRAntarctic"), row, col, year, daynum,
-                                                          (satFlag==TERRA)?"terra":"aqua", (dataFlag==REFLECTANCE)?".":".opaque", (typeFlag==JPG)?"jpg":"png");
+    sprintf(outFileName, "%s_r%02dc%02d.%04d%03d.%s%s250m.%s", (regionFlag==NORTH)?"RRArctic":((regionFlag==NORMAL)?"RRGlobal":"RRAntarctic"), row, col, year, daynum,
+                                                          (satFlag==TERRA)?"terra":"aqua", (dataFlag==REFLECTANCE)?".":".opaque.", (typeFlag==JPG)?"jpg":"png");
     imwrite(outFileName, outputBuffer);
     printf("File %s is written\n", outFileName);
     return 0;
