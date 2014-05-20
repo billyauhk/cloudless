@@ -19,6 +19,9 @@ How about 250m water mask? It could also be used.
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+// For calling wait()
+#include <sys/types.h>
+#include <sys/wait.h>
 
 using namespace cv;
 using namespace std;
@@ -145,7 +148,11 @@ int main(int argc, char* argv[]){
   //download(NORMAL, AQUA, REFLECTANCE, JPG);
   for(day=1;day<=16;day++){
     daynum=day;
-    download(NORMAL, TERRA, MASK, PNG);
+    if(fork()==0){download(NORMAL, TERRA, MASK, PNG);exit(0);}
+    if(fork()==0){download(NORMAL, AQUA, MASK, PNG);exit(0);}
+    if(fork()==0){download(NORMAL, TERRA, REFLECTANCE, JPG);exit(0);}
+    if(fork()==0){download(NORMAL, AQUA, REFLECTANCE, JPG);exit(0);}
+    for(int j=0;j<4;j++)wait(NULL);
   }
   return 0;
 }
